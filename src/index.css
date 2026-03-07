@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Roboto+Mono:wght@400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-cyber-black text-cyber-green font-mono overflow-x-hidden;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(0, 212, 255, 0.05) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 20%, rgba(0, 255, 157, 0.05) 0%, transparent 60%);
+    min-height: 100vh;
+    /* Pull-to-refresh / 過スクロール無効化 */
+    overscroll-behavior: none;
+    /* 長押しコンテキストメニュー無効化 */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  * {
+    box-sizing: border-box;
+    /* タップハイライト無効化 */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-cyber-black;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-cyber-blue;
+  }
+}
+
+@layer components {
+  .cyber-border {
+    border: 1px solid rgba(0, 212, 255, 0.4);
+    box-shadow: inset 0 0 20px rgba(0, 212, 255, 0.05);
+  }
+
+  .glitch-text {
+    position: relative;
+  }
+
+  .glitch-text::before,
+  .glitch-text::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .glitch-text::before {
+    color: #ff003c;
+    animation: glitch-before 2s infinite;
+    clip-path: polygon(0 30%, 100% 30%, 100% 50%, 0 50%);
+  }
+
+  .glitch-text::after {
+    color: #00d4ff;
+    animation: glitch-after 2s infinite;
+    clip-path: polygon(0 60%, 100% 60%, 100% 80%, 0 80%);
+  }
+
+  .scan-line {
+    background: linear-gradient(
+      transparent 50%,
+      rgba(0, 212, 255, 0.03) 50%
+    );
+    background-size: 100% 4px;
+  }
+
+  .neon-text-blue {
+    color: #00d4ff;
+    text-shadow: 0 0 7px #00d4ff, 0 0 10px #00d4ff, 0 0 21px #00d4ff;
+  }
+
+  .neon-text-green {
+    color: #00ff9d;
+    text-shadow: 0 0 7px #00ff9d, 0 0 10px #00ff9d, 0 0 21px #00ff9d;
+  }
+
+  .neon-text-red {
+    color: #ff003c;
+    text-shadow: 0 0 7px #ff003c, 0 0 10px #ff003c, 0 0 21px #ff003c;
+  }
+}
+
+@keyframes glitch-before {
+  0%, 100% { transform: translate(0); opacity: 0; }
+  20% { transform: translate(-2px, 2px); opacity: 0.8; }
+  40% { transform: translate(2px, -2px); opacity: 0; }
+  60% { transform: translate(-1px, 1px); opacity: 0.6; }
+}
+
+@keyframes glitch-after {
+  0%, 100% { transform: translate(0); opacity: 0; }
+  30% { transform: translate(2px, -1px); opacity: 0.8; }
+  50% { transform: translate(-2px, 2px); opacity: 0; }
+  70% { transform: translate(1px, -1px); opacity: 0.6; }
+}
+
+@keyframes scan-line-move {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: '_';
+  animation: blink 1s step-end infinite;
+}
+
+.hp-bar-transition {
+  transition: width 0.5s ease-out;
+}
