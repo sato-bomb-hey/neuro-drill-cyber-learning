@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { doc, setDoc } from 'firebase/firestore'
-import { db } from '../firebase'
+import { auth, db } from '../firebase'
 import { CyberPanel } from './ui/CyberPanel'
 import { NeonButton } from './ui/NeonButton'
 import { useGameStore } from '../store/gameStore'
@@ -91,10 +91,11 @@ export default function DrillRound() {
       finishRound()
       setFinished(true)
 
-      if (user && currentRound) {
+      const uid = auth.currentUser?.uid
+      if (uid && currentRound) {
         const record: ScoreRecord = {
           id: currentRound.id,
-          uid: user.uid,
+          uid,
           subject: currentRound.subject,
           grade: currentRound.grade,
           term: currentRound.term,
