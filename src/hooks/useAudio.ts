@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
 // ── モジュールレベルのシングルトン ──
@@ -119,29 +119,9 @@ function trackTypeFor(path: string): 'maintitle' | 'session' {
 
 export function useAudio() {
   const location = useLocation()
-  const startedRef = useRef(false)
-  const pathnameRef = useRef(location.pathname)
 
+  // ルート変化時の BGM 切り替え（BGM 開始は SplashScreen のボタンで行う）
   useEffect(() => {
-    pathnameRef.current = location.pathname
-  }, [location.pathname])
-
-  useEffect(() => {
-    const unlock = () => {
-      if (startedRef.current) return
-      startedRef.current = true
-      switchBgm(trackTypeFor(pathnameRef.current))
-    }
-    document.addEventListener('click', unlock, { once: true })
-    document.addEventListener('keydown', unlock, { once: true })
-    return () => {
-      document.removeEventListener('click', unlock)
-      document.removeEventListener('keydown', unlock)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!startedRef.current) return
     switchBgm(trackTypeFor(location.pathname))
   }, [location.pathname])
 }

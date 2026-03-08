@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import { useAudio } from './hooks/useAudio'
+import { SplashScreen } from './components/SplashScreen'
 import { LoginScreen } from './components/LoginScreen'
 import TitleScreen from './components/TitleScreen'
 import DrillRound from './components/DrillRound'
@@ -42,11 +44,16 @@ function AppContent() {
 }
 
 export default function App() {
+  const [booted, setBooted] = useState(false)
+
   return (
     <BrowserRouter>
       <div className="relative min-h-screen">
         <ScanLine />
-        <AppContent />
+        {!booted
+          ? <SplashScreen onStart={() => setBooted(true)} />
+          : <AppContent />
+        }
       </div>
     </BrowserRouter>
   )
