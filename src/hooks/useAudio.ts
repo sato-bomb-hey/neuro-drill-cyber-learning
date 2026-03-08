@@ -8,81 +8,85 @@ const SESSION_TRACKS = [
   '/session5.mp3', '/session6.mp3', '/session7.mp3', '/session8.mp3',
 ]
 const ALL_TRACKS = ['/maintitle.mp3', ...SESSION_TRACKS]
-const FADE_OUT_S = 0.8
-const FADE_IN_S = 0.6
+const FADE_OUT_MS = 800
+const FADE_IN_MS = 600
+const TICK_MS = 50
 
-// ── モジュール読み込み直後に全トラックをフェッチ開始 ──
-// （ユーザー操作なしでも fetch は可能）
+// ── モジュール読み込み時に全 Audio 要素を事前生成・バッファリング開始 ──
+// preload='auto' により、ユーザー操作前からブラウザが音声データを読み込み始める
 
-const _fetchMap = new Map<string, Promise<ArrayBuffer>>()
+const _pool = new Map<string, HTMLAudioElement>()
 ALL_TRACKS.forEach(src => {
-  _fetchMap.set(src, fetch(src).then(r => r.arrayBuffer()))
+  const a = new Audio(src)
+  a.loop = true
+  a.preload = 'auto'
+  _pool.set(src, a)
 })
 
-// ── Web Audio API シングルトン ──
+// ── 状態 ──
 
-let _ctx: AudioContext | null = null
-let _gainNode: GainNode | null = null
-let _source: AudioBufferSourceNode | null = null
+let _current: HTMLAudioElement | null = null
 let _currentSrc = ''
 let _currentType: 'maintitle' | 'session' | null = null
 let _lastSessionSrc = ''
-const _bufferMap = new Map<string, AudioBuffer>()
+let _fadeTimer: ReturnType<typeof setInterval> | null = null
 
-async function getBuffer(src: string): Promise<AudioBuffer | null> {
-  if (!_ctx) return null
-  if (_bufferMap.has(src)) return _bufferMap.get(src)!
-  const raw = await _fetchMap.get(src)
-  if (!raw || !_ctx) return null
-  // slice(0) でコピーを渡す（decodeAudioData は ArrayBuffer を detach するため）
-  const buf = await _ctx.decodeAudioData(raw.slice(0))
-  _bufferMap.set(src, buf)
-  return buf
+function clearFade() {
+  if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null }
 }
 
-async function playBuffer(src: string, fadeIn: boolean) {
-  if (!_ctx || !_gainNode) return
-  const buf = await getBuffer(src)
-  if (!buf || !_ctx || !_gainNode) return
-
-  if (_source) {
-    try { _source.stop() } catch (_) { /* already stopped */ }
-    _source.disconnect()
-  }
-
-  _source = _ctx.createBufferSource()
-  _source.buffer = buf
-  _source.loop = true
-  _source.connect(_gainNode)
-
-  const now = _ctx.currentTime
-  _gainNode.gain.cancelScheduledValues(now)
-  if (fadeIn) {
-    _gainNode.gain.setValueAtTime(0, now)
-    _gainNode.gain.linearRampToValueAtTime(1, now + FADE_IN_S)
-  } else {
-    _gainNode.gain.setValueAtTime(1, now)
-  }
-  _source.start()
-  _currentSrc = src
+function setVol(audio: HTMLAudioElement, v: number) {
+  try { audio.volume = Math.max(0, Math.min(1, v)) } catch (_) { /* iOS は read-only の場合がある */ }
 }
 
-async function fadeSwitch(src: string) {
+function fadeSwitchTo(src: string) {
   if (_currentSrc === src) return
+  const next = _pool.get(src)
+  if (!next) return
 
-  if (!_ctx || !_gainNode || !_source) {
-    await playBuffer(src, false)
+  clearFade()
+
+  // 初回 or 現在の音声がない場合は即時再生
+  if (!_current) {
+    setVol(next, 1)
+    next.play().catch(() => {})
+    _current = next
+    _currentSrc = src
     return
   }
 
-  // フェードアウト（Web Audio API のスケジューラでネイティブ処理）
-  const now = _ctx.currentTime
-  _gainNode.gain.cancelScheduledValues(now)
-  _gainNode.gain.setValueAtTime(_gainNode.gain.value, now)
-  _gainNode.gain.linearRampToValueAtTime(0, now + FADE_OUT_S)
+  const old = _current
+  _current = next
+  _currentSrc = src
 
-  // フェードアウト完了後に次のトラックを再生
-  setTimeout(() => playBuffer(src, true), FADE_OUT_S * 1000)
+  // フェードアウト → 次のトラックを開始 → フェードイン
+  const outSteps = FADE_OUT_MS / TICK_MS
+  const inSteps = FADE_IN_MS / TICK_MS
+  let step = 0
+
+  _fadeTimer = setInterval(() => {
+    step++
+    setVol(old, 1 - step / outSteps)
+    if (step >= outSteps) {
+      clearFade()
+      old.pause()
+      setVol(old, 1) // 次回使用時のためにリセット
+
+      setVol(next, 0)
+      next.play().catch(() => {})
+
+      // フェードイン
+      let inStep = 0
+      _fadeTimer = setInterval(() => {
+        inStep++
+        setVol(next, inStep / inSteps)
+        if (inStep >= inSteps) {
+          clearFade()
+          setVol(next, 1)
+        }
+      }, TICK_MS)
+    }
+  }, TICK_MS)
 }
 
 function pickSession(): string {
@@ -92,32 +96,24 @@ function pickSession(): string {
   return src
 }
 
-/** SplashScreen の BOOT ボタンから呼ぶ。AudioContext 作成は必ずユーザー操作内で行う */
-export async function initAudio() {
-  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-  _ctx = new Ctx()
-  await _ctx.resume()
-
-  _gainNode = _ctx.createGain()
-  _gainNode.gain.value = 1
-  _gainNode.connect(_ctx.destination)
-
-  // maintitle を優先デコード → 即時再生
-  await playBuffer('/maintitle.mp3', false)
+/** SplashScreen の BOOT ボタンから呼ぶ（ユーザー操作内で実行すること） */
+export function initAudio() {
   _currentType = 'maintitle'
-
-  // 残りのトラックをバックグラウンドでデコード
-  SESSION_TRACKS.forEach(src => getBuffer(src).catch(() => {}))
+  _currentSrc = '/maintitle.mp3'
+  _current = _pool.get('/maintitle.mp3')!
+  setVol(_current, 1)
+  _current.play().catch(() => {})
 }
 
 export function switchBgm(type: 'maintitle' | 'session') {
+  if (!_current) return // initAudio が呼ばれる前は何もしない
   if (type === 'maintitle') {
     if (_currentType === 'maintitle') return
     _currentType = 'maintitle'
-    fadeSwitch('/maintitle.mp3')
+    fadeSwitchTo('/maintitle.mp3')
   } else {
     _currentType = 'session'
-    fadeSwitch(pickSession())
+    fadeSwitchTo(pickSession())
   }
 }
 
