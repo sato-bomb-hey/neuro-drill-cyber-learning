@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
 // ── 定数 ──
@@ -12,8 +12,7 @@ const FADE_OUT_MS = 800
 const FADE_IN_MS = 600
 const TICK_MS = 50
 
-// ── モジュール読み込み時に全 Audio 要素を事前生成・バッファリング開始 ──
-// preload='auto' により、ユーザー操作前からブラウザが音声データを読み込み始める
+// ── 全 Audio 要素をモジュール読み込み時に生成・バッファリング開始 ──
 
 const _pool = new Map<string, HTMLAudioElement>()
 ALL_TRACKS.forEach(src => {
@@ -36,7 +35,7 @@ function clearFade() {
 }
 
 function setVol(audio: HTMLAudioElement, v: number) {
-  try { audio.volume = Math.max(0, Math.min(1, v)) } catch (_) { /* iOS は read-only の場合がある */ }
+  try { audio.volume = Math.max(0, Math.min(1, v)) } catch (_) {}
 }
 
 function fadeSwitchTo(src: string) {
@@ -46,7 +45,6 @@ function fadeSwitchTo(src: string) {
 
   clearFade()
 
-  // 初回 or 現在の音声がない場合は即時再生
   if (!_current) {
     setVol(next, 1)
     next.play().catch(() => {})
@@ -59,7 +57,6 @@ function fadeSwitchTo(src: string) {
   _current = next
   _currentSrc = src
 
-  // フェードアウト → 次のトラックを開始 → フェードイン
   const outSteps = FADE_OUT_MS / TICK_MS
   const inSteps = FADE_IN_MS / TICK_MS
   let step = 0
@@ -70,12 +67,11 @@ function fadeSwitchTo(src: string) {
     if (step >= outSteps) {
       clearFade()
       old.pause()
-      setVol(old, 1) // 次回使用時のためにリセット
+      setVol(old, 1)
 
       setVol(next, 0)
       next.play().catch(() => {})
 
-      // フェードイン
       let inStep = 0
       _fadeTimer = setInterval(() => {
         inStep++
@@ -96,17 +92,8 @@ function pickSession(): string {
   return src
 }
 
-/** SplashScreen の BOOT ボタンから呼ぶ（ユーザー操作内で実行すること） */
-export function initAudio() {
-  _currentType = 'maintitle'
-  _currentSrc = '/maintitle.mp3'
-  _current = _pool.get('/maintitle.mp3')!
-  setVol(_current, 1)
-  _current.play().catch(() => {})
-}
-
 export function switchBgm(type: 'maintitle' | 'session') {
-  if (!_current) return // initAudio が呼ばれる前は何もしない
+  if (!_current && type === 'maintitle' && _currentType === 'maintitle') return
   if (type === 'maintitle') {
     if (_currentType === 'maintitle') return
     _currentType = 'maintitle'
@@ -118,6 +105,7 @@ export function switchBgm(type: 'maintitle' | 'session') {
 }
 
 // ── React フック ──
+// document レベルの touchend/click で音声をアンロック（iOS 対応の確実な方法）
 
 function trackTypeFor(path: string): 'maintitle' | 'session' {
   return path === '/drill' || path === '/boss' ? 'session' : 'maintitle'
@@ -125,7 +113,42 @@ function trackTypeFor(path: string): 'maintitle' | 'session' {
 
 export function useAudio() {
   const location = useLocation()
+  const startedRef = useRef(false)
+  const pathnameRef = useRef(location.pathname)
+
   useEffect(() => {
+    pathnameRef.current = location.pathname
+  }, [location.pathname])
+
+  // 初回タッチ/クリックで音声開始（iOS は touchend が最も確実）
+  useEffect(() => {
+    const unlock = () => {
+      if (startedRef.current) return
+      startedRef.current = true
+
+      const src = trackTypeFor(pathnameRef.current) === 'session'
+        ? pickSession()
+        : '/maintitle.mp3'
+      _currentType = trackTypeFor(pathnameRef.current)
+
+      const audio = _pool.get(src)!
+      setVol(audio, 1)
+      audio.play().catch(() => {})
+      _current = audio
+      _currentSrc = src
+    }
+
+    document.addEventListener('touchend', unlock, { once: true })
+    document.addEventListener('click', unlock, { once: true })
+    return () => {
+      document.removeEventListener('touchend', unlock)
+      document.removeEventListener('click', unlock)
+    }
+  }, [])
+
+  // ルート変化時の BGM 切り替え
+  useEffect(() => {
+    if (!startedRef.current) return
     switchBgm(trackTypeFor(location.pathname))
   }, [location.pathname])
 }

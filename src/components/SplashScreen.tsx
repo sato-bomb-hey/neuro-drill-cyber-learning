@@ -1,5 +1,4 @@
 import { GlitchText } from './ui/GlitchText'
-import { initAudio } from '../hooks/useAudio'
 
 interface Props {
   onStart: () => void
@@ -7,7 +6,6 @@ interface Props {
 
 export function SplashScreen({ onStart }: Props) {
   const handleStart = () => {
-    initAudio()  // AudioContext 作成はユーザー操作内で呼ぶ必要がある
     onStart()
   }
 

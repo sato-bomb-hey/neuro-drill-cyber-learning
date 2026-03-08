@@ -14,7 +14,6 @@ import { ScanLine } from './components/ui/ScanLine'
 
 function AppContent() {
   const { authUser, loading, login, register } = useAuth()
-  useAudio()
 
   if (loading) {
     return (
@@ -43,6 +42,13 @@ function AppContent() {
   )
 }
 
+// useAudio を常にマウントしておくことで、スプラッシュ画面のタップ時点で
+// document の touchend/click リスナーが反応し、iOS でも確実に音声が開始する
+function AudioManager() {
+  useAudio()
+  return null
+}
+
 export default function App() {
   const [booted, setBooted] = useState(false)
 
@@ -50,6 +56,7 @@ export default function App() {
     <BrowserRouter>
       <div className="relative min-h-screen">
         <ScanLine />
+        <AudioManager />
         {!booted
           ? <SplashScreen onStart={() => setBooted(true)} />
           : <AppContent />
