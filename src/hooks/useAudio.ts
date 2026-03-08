@@ -18,12 +18,22 @@ const FADE_OUT_MS = 800
 const FADE_IN_MS = 600
 const TICK_MS = 50
 
-// 単一の Audio 要素を使い回す（iOS 制限対策）
 let _audio: HTMLAudioElement | null = null
 let _currentType: 'maintitle' | 'session' | null = null
 let _lastSessionSrc = ''
 let _fadeTimer: ReturnType<typeof setInterval> | null = null
 let _pendingSrc: string | null = null
+
+// ── アプリ起動直後に音声ファイルのダウンロードを開始（再生はしない）──
+// ユーザー操作なしでも fetch で preload できる
+function preload(src: string) {
+  fetch(src, { priority: 'low' } as RequestInit).catch(() => {})
+}
+
+preload('/maintitle.mp3')
+SESSION_TRACKS.forEach(src => preload(src))
+
+// ────────────────────────────────────────────────────────────────
 
 function clearFade() {
   if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null }
@@ -37,16 +47,13 @@ function getAudio(): HTMLAudioElement {
   return _audio
 }
 
-/** フェードアウト → ソース切替 → フェードイン（単一要素で順次処理） */
 function fadeSwitch(src: string) {
   clearFade()
   _pendingSrc = src
   const audio = getAudio()
 
-  // すでに同じソースなら何もしない
   if (audio.src.endsWith(src) && !audio.paused) return
 
-  // 再生中でなければ即座に開始
   if (audio.paused || audio.volume === 0) {
     audio.src = src
     audio.loop = true
@@ -56,17 +63,14 @@ function fadeSwitch(src: string) {
     return
   }
 
-  // フェードアウト
   const outSteps = FADE_OUT_MS / TICK_MS
   let step = 0
   const startVol = audio.volume
   _fadeTimer = setInterval(() => {
     step++
-    const vol = startVol * (1 - step / outSteps)
-    audio.volume = Math.max(0, vol)
+    audio.volume = Math.max(0, startVol * (1 - step / outSteps))
     if (step >= outSteps) {
       clearFade()
-      // ソース切替 & フェードイン
       if (_pendingSrc) {
         audio.pause()
         audio.src = _pendingSrc
@@ -120,7 +124,6 @@ function trackTypeFor(path: string): 'maintitle' | 'session' {
 export function useAudio() {
   const location = useLocation()
 
-  // ルート変化時の BGM 切り替え（BGM 開始は SplashScreen のボタンで行う）
   useEffect(() => {
     switchBgm(trackTypeFor(location.pathname))
   }, [location.pathname])
