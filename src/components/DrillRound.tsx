@@ -28,7 +28,6 @@ export default function DrillRound() {
     startRound,
     startBossBattle,
     addScoreRecord,
-    user,
     resetCurrentRound,
   } = useGameStore()
 
