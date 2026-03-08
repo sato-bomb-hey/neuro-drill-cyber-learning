@@ -121,27 +121,24 @@ export function useAudio() {
   }, [location.pathname])
 
   // 初回タッチ/クリックで音声開始（iOS 対応）
+  // async/await を使わず完全同期処理にする（await 後の play() は iOS にブロックされる）
   useEffect(() => {
-    const unlock = async () => {
+    const unlock = () => {
       if (startedRef.current) return
-      startedRef.current = true  // 先にフラグを立てて二重実行を防ぐ
+      startedRef.current = true
 
-      // 全 Audio 要素を個別に無音で play/pause → iOS のファイル単位ロックを解除
-      // 個別 try/catch で一部失敗しても他に影響しない
-      const unlockPromises = Array.from(_pool.values()).map(async (audio) => {
+      // 全 Audio 要素を同期的に無音で play → pause してロックを一括解除
+      // play() の直後に pause() することで AbortError が出るが catch で握りつぶす
+      _pool.forEach((audio) => {
         const vol = audio.volume
         audio.volume = 0
-        try {
-          await audio.play()
-          audio.pause()
-        } catch {
-          // 無効タップ等で失敗しても無視（他の曲のアンロックは続行）
-        }
+        const p = audio.play()
+        if (p !== undefined) p.catch(() => {})
+        audio.pause()
         audio.volume = vol
       })
-      await Promise.all(unlockPromises)
 
-      // 目的の BGM を再生
+      // 目的の BGM を同期的に再生（await なしなので iOS にブロックされない）
       const src = trackTypeFor(pathnameRef.current) === 'session'
         ? pickSession()
         : '/maintitle.mp3'
@@ -153,7 +150,6 @@ export function useAudio() {
       _current = targetAudio
       _currentSrc = src
 
-      // アンロック完了後にリスナーを削除
       document.removeEventListener('touchend', unlock)
       document.removeEventListener('click', unlock)
     }
