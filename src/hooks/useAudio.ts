@@ -120,47 +120,44 @@ export function useAudio() {
     pathnameRef.current = location.pathname
   }, [location.pathname])
 
-  // 初回タッチ/クリックで音声開始
-  // { once: true } を使わず、play() 成功時のみフラグを立てる（iOS の空振り対策）
+  // 初回タッチ/クリックで音声開始（iOS 対応）
   useEffect(() => {
     const unlock = async () => {
       if (startedRef.current) return
+      startedRef.current = true  // 先にフラグを立てて二重実行を防ぐ
 
-      try {
-        // 全 Audio 要素を無音で一瞬再生・停止し、iOS のロックをまとめて解除
-        await Promise.all(
-          Array.from(_pool.values()).map(async (audio) => {
-            const vol = audio.volume
-            audio.volume = 0
-            await audio.play()
-            audio.pause()
-            audio.volume = vol
-          })
-        )
+      // 全 Audio 要素を個別に無音で play/pause → iOS のファイル単位ロックを解除
+      // 個別 try/catch で一部失敗しても他に影響しない
+      const unlockPromises = Array.from(_pool.values()).map(async (audio) => {
+        const vol = audio.volume
+        audio.volume = 0
+        try {
+          await audio.play()
+          audio.pause()
+        } catch {
+          // 無効タップ等で失敗しても無視（他の曲のアンロックは続行）
+        }
+        audio.volume = vol
+      })
+      await Promise.all(unlockPromises)
 
-        // 成功した場合のみフラグを立てリスナーを削除
-        startedRef.current = true
-        document.removeEventListener('touchend', unlock)
-        document.removeEventListener('click', unlock)
+      // 目的の BGM を再生
+      const src = trackTypeFor(pathnameRef.current) === 'session'
+        ? pickSession()
+        : '/maintitle.mp3'
+      _currentType = trackTypeFor(pathnameRef.current)
 
-        // 目的の BGM を再生
-        const src = trackTypeFor(pathnameRef.current) === 'session'
-          ? pickSession()
-          : '/maintitle.mp3'
-        _currentType = trackTypeFor(pathnameRef.current)
+      const targetAudio = _pool.get(src)!
+      setVol(targetAudio, 1)
+      targetAudio.play().catch(() => {})
+      _current = targetAudio
+      _currentSrc = src
 
-        const targetAudio = _pool.get(src)!
-        setVol(targetAudio, 1)
-        targetAudio.play().catch(() => {})
-        _current = targetAudio
-        _currentSrc = src
-
-      } catch {
-        // スクロール等の無効タップで play() が拒否された場合は次のタップを待つ
-      }
+      // アンロック完了後にリスナーを削除
+      document.removeEventListener('touchend', unlock)
+      document.removeEventListener('click', unlock)
     }
 
-    // once: true を外し、成功するまで何度でも待ち受ける
     document.addEventListener('touchend', unlock)
     document.addEventListener('click', unlock)
     return () => {
