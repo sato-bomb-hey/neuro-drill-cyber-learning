@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
-// ── モジュールレベルのシングルトン（React のライフサイクル外で管理）──
+// ── モジュールレベルのシングルトン ──
 
 const SESSION_TRACKS = [
   '/session1.mp3',
@@ -14,41 +14,85 @@ const SESSION_TRACKS = [
   '/session8.mp3',
 ]
 
-const FADE_MS = 1500
+const FADE_OUT_MS = 800
+const FADE_IN_MS = 600
 const TICK_MS = 50
 
+// 単一の Audio 要素を使い回す（iOS 制限対策）
 let _audio: HTMLAudioElement | null = null
 let _currentType: 'maintitle' | 'session' | null = null
 let _lastSessionSrc = ''
 let _fadeTimer: ReturnType<typeof setInterval> | null = null
+let _pendingSrc: string | null = null
 
-function crossFadeTo(src: string) {
+function clearFade() {
   if (_fadeTimer) { clearInterval(_fadeTimer); _fadeTimer = null }
+}
 
-  const old = _audio
-  const next = new Audio(src)
-  next.loop = true
-  next.volume = old ? 0 : 1
-  _audio = next
-  next.play().catch(() => {})
+function getAudio(): HTMLAudioElement {
+  if (!_audio) {
+    _audio = new Audio()
+    _audio.loop = true
+  }
+  return _audio
+}
 
-  if (!old) return
+/** フェードアウト → ソース切替 → フェードイン（単一要素で順次処理） */
+function fadeSwitch(src: string) {
+  clearFade()
+  _pendingSrc = src
+  const audio = getAudio()
 
-  const steps = FADE_MS / TICK_MS
+  // すでに同じソースなら何もしない
+  if (audio.src.endsWith(src) && !audio.paused) return
+
+  // 再生中でなければ即座に開始
+  if (audio.paused || audio.volume === 0) {
+    audio.src = src
+    audio.loop = true
+    audio.volume = 0
+    audio.play().catch(() => {})
+    fadeIn(audio)
+    return
+  }
+
+  // フェードアウト
+  const outSteps = FADE_OUT_MS / TICK_MS
   let step = 0
+  const startVol = audio.volume
   _fadeTimer = setInterval(() => {
     step++
-    const t = Math.min(step / steps, 1)
-    next.volume = t
-    old.volume = 1 - t
-    if (step >= steps) {
-      clearInterval(_fadeTimer!); _fadeTimer = null
-      old.pause(); old.src = ''
+    const vol = startVol * (1 - step / outSteps)
+    audio.volume = Math.max(0, vol)
+    if (step >= outSteps) {
+      clearFade()
+      // ソース切替 & フェードイン
+      if (_pendingSrc) {
+        audio.pause()
+        audio.src = _pendingSrc
+        audio.loop = true
+        audio.volume = 0
+        audio.play().catch(() => {})
+        fadeIn(audio)
+      }
     }
   }, TICK_MS)
 }
 
-/** 直前と異なるセッショントラックをランダムに選ぶ */
+function fadeIn(audio: HTMLAudioElement) {
+  clearFade()
+  const inSteps = FADE_IN_MS / TICK_MS
+  let step = 0
+  _fadeTimer = setInterval(() => {
+    step++
+    audio.volume = Math.min(1, step / inSteps)
+    if (step >= inSteps) {
+      clearFade()
+      audio.volume = 1
+    }
+  }, TICK_MS)
+}
+
 function pickSession(): string {
   const pool = SESSION_TRACKS.filter(s => s !== _lastSessionSrc)
   const src = pool[Math.floor(Math.random() * pool.length)]
@@ -56,20 +100,18 @@ function pickSession(): string {
   return src
 }
 
-/** 外部から呼び出す BGM 切り替え関数 */
 export function switchBgm(type: 'maintitle' | 'session') {
   if (type === 'maintitle') {
     if (_currentType === 'maintitle') return
     _currentType = 'maintitle'
-    crossFadeTo('/maintitle.mp3')
+    fadeSwitch('/maintitle.mp3')
   } else {
-    // session は毎回必ず新しいランダムトラック
     _currentType = 'session'
-    crossFadeTo(pickSession())
+    fadeSwitch(pickSession())
   }
 }
 
-// ── React フック ──────────────────────────────────────────────
+// ── React フック ──
 
 function trackTypeFor(path: string): 'maintitle' | 'session' {
   return path === '/drill' || path === '/boss' ? 'session' : 'maintitle'
@@ -84,7 +126,6 @@ export function useAudio() {
     pathnameRef.current = location.pathname
   }, [location.pathname])
 
-  // 初回ユーザー操作で再生開始（ブラウザの autoplay 制限対策）
   useEffect(() => {
     const unlock = () => {
       if (startedRef.current) return
@@ -99,7 +140,6 @@ export function useAudio() {
     }
   }, [])
 
-  // ルート変化時の切り替え
   useEffect(() => {
     if (!startedRef.current) return
     switchBgm(trackTypeFor(location.pathname))
